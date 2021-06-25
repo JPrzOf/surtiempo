@@ -1,0 +1,100 @@
+@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@100;200;300;400;500;600&display=swap");
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: "Poppins", sans-serif;
+}
+
+body {
+  background: #000;
+  color: #fff;
+  font-size: 20px;
+}
+
+
+
+/* VIDEO MODAL */
+.modal {
+  /* user-select: none; */
+  display: flex;
+  position: fixed; /* Stay in place */
+  justify-content: center;
+  left: 0;
+  top: 0;
+  width: 100%; /* Full width */
+  height: 100%; /* Full height */
+  background-color: rgba(0,0,0,0.9);
+  opacity: 0;
+  transition: opacity 4s linear;
+}
+  .videoContainer {
+    display: flex;
+    justify-content: center;
+    align-self: center;
+    background-color: #fefefe;
+  }
+    .video {
+      align-self: center;
+      min-width: 0;
+      max-width: 100vw;      /*para mantener siempre 16:9*/
+      max-height: 100vh;      /*para mantener siempre 16:9*/
+      object-fit: contain;
+    }
+
+
+
+
+/* CONTENEDOR */
+.container {
+  background-image: url("backgrounds/fondo1.jpg");
+  background-size: 100%;
+  opacity: 1;
+  transition: opacity 2s linear;
+}
+
+
+  /* TEXTO */
+  .text-container {
+    margin: 0px 15%;
+  }
+
+    .text {
+      font-size: 1.2em;
+      padding: 50px 100px;
+      background: rgba(0,0,0,0.6);
+    }
+    .videoExtra {
+      margin-top: 30px;
+      position: relative;
+      overflow: hidden;
+      width: 100%;
+      padding-top: 56.25%; /* 16:9 Aspect Ratio (divide 9 by 16 = 0.5625) */
+    }
+    .responsive-iframe {
+      position: absolute;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      right: 0;
+      width: 100%;
+      height: 100%;
+      }
+
+  /* CLOCK */
+  #clock {
+    display: flex;
+    justify-content: center;
+    background-color: rgba(0,0,0,0.7);
+    height: 50px;
+    position: fixed;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+  }
+    #time {
+      align-self: center;
+      font-size: 1.7em;
+      letter-spacing: 2px;
+    }
