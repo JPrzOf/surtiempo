@@ -6,30 +6,29 @@ const DEST_SECOND = 0;
 // Elementos UI
 const modal = document.querySelector(".modal");
 const container = document.querySelector(".container");
-const clockBar = document.getElementById("clock");
 const timeEl = document.getElementById("time");
 const iframe = document.getElementById('yt-iframe');
-const video = document.querySelector('.video'); // fallback if needed
 
 // YouTube player reference
 let ytPlayer = null;
 let playerReady = false;
 let videoId = (iframe && iframe.dataset && iframe.dataset.videoId) ? iframe.dataset.videoId : (window.YOUTUBE_VIDEO_ID || 'wq30q8NKU_A');
+// video known duration (1 hora)
+const KNOWN_VIDEO_DURATION = 3600;
 
-// utility: compute today's target and next target
+// Helpers de tiempo
 function getTodayTargetDate(now = new Date()) {
-  const target = new Date(now);
-  target.setHours(DEST_HOUR, DEST_MINUTE, DEST_SECOND, 0);
-  return target;
+  const t = new Date(now);
+  t.setHours(DEST_HOUR, DEST_MINUTE, DEST_SECOND, 0);
+  return t;
 }
 function getNextTargetDate(now = new Date()) {
   const t = getTodayTargetDate(now);
   if (now <= t) return t;
-  const next = new Date(t.getTime() + 24*60*60*1000);
-  return next;
+  return new Date(t.getTime() + 24*60*60*1000);
 }
 
-// UI: show countdown to a future date (updates every second)
+// Countdown
 let countdownInterval = null;
 function startCountdownTo(targetDate) {
   if (countdownInterval) clearInterval(countdownInterval);
@@ -51,19 +50,43 @@ function startCountdownTo(targetDate) {
   countdownInterval = setInterval(update, 1000);
 }
 
-// Initialize YouTube iframe player (load API if needed)
+// Mostrar/u ocultar modal
+function showModal() {
+  if (modal) {
+    modal.style.opacity = 1;
+  }
+  if (container) {
+    container.style.opacity = 0;
+  }
+  try { document.body.style.overflow = "hidden"; } catch(e){}
+}
+function hideModal() {
+  if (modal) modal.style.opacity = 0;
+  if (container) container.style.opacity = 1;
+  try { document.body.style.overflow = "auto"; } catch(e){}
+}
+
+// Carga inmediata del iframe con start (fallback rápido)
+function setIframeWithStart(startSec, muted = true) {
+  if (!iframe) return;
+  const params = new URLSearchParams({
+    rel: '0',
+    modestbranding: '1',
+    autoplay: '1',
+    mute: muted ? '1' : '0',
+    start: String(Math.max(0, Math.floor(startSec))),
+    controls: '1',
+    enablejsapi: '1'
+  });
+  iframe.src = `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?${params.toString()}`;
+}
+
+// Cargar API y crear player
 function loadYouTubeAPIAndCreatePlayer() {
   return new Promise((resolve) => {
     if (!iframe) return resolve(null);
-    const baseParams = new URLSearchParams({
-      rel: '0',
-      modestbranding: '1',
-      autoplay: '1',
-      mute: '1',
-      enablejsapi: '1',
-      controls: '1'
-    });
-    iframe.src = `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?${baseParams.toString()}`;
+    // set src minimal para que el iframe exista ya (si no lo puso el fallback)
+    if (!iframe.src) setIframeWithStart(0, true);
 
     window.onYouTubeIframeAPIReady = function() {
       try {
@@ -71,23 +94,20 @@ function loadYouTubeAPIAndCreatePlayer() {
           events: {
             onReady: function(e) {
               playerReady = true;
-              try { e.target.mute(); } catch (err) {}
-              try { e.target.playVideo && e.target.playVideo(); } catch (err) {}
+              try { e.target.mute(); } catch(e){}
+              try { e.target.playVideo && e.target.playVideo(); } catch(e){}
               resolve(ytPlayer);
             },
             onStateChange: function(e) {
               if (e && e.data === 0) { // ended
-                const next = getNextTargetDate(new Date());
-                modal.style.opacity = 0;
-                container.style.opacity = 1;
-                document.body.style.overflow = "auto";
-                startCountdownTo(next);
+                hideModal();
+                startCountdownTo(getNextTargetDate(new Date()));
               }
             }
           }
         });
       } catch (err) {
-        console.warn('Error creating YT player', err);
+        console.warn('YT Player create error', err);
         resolve(null);
       }
     };
@@ -102,89 +122,92 @@ function loadYouTubeAPIAndCreatePlayer() {
   });
 }
 
-// Main logic: decide to play now or show countdown
+// Intentar obtener duración con retry; si no responde, usar KNOWN_VIDEO_DURATION
+function getDurationWithRetry(player, attempts = 12, delayMs = 300) {
+  return new Promise((resolve) => {
+    let tries = 0;
+    const t = setInterval(() => {
+      tries++;
+      let dur = 0;
+      try { dur = player.getDuration(); } catch(e){ dur = 0; }
+      if (dur && dur > 0) {
+        clearInterval(t);
+        resolve(Math.floor(dur));
+      } else if (tries >= attempts) {
+        clearInterval(t);
+        resolve(0);
+      }
+    }, delayMs);
+  });
+}
+
+// Lógica principal
 async function initOrStartPlayback() {
   const now = new Date();
-  const todayTarget = getTodayTargetDate(now);
-  const nextTarget = getNextTargetDate(now);
+  const today = getTodayTargetDate(now);
+  const next = getNextTargetDate(now);
 
   if (!videoId) {
-    console.warn('No YOUTUBE video id configured.');
-    startCountdownTo(nextTarget);
+    console.warn('No videoId configurado');
+    startCountdownTo(next);
     return;
   }
 
-  if (now < todayTarget) {
-    startCountdownTo(todayTarget);
+  if (now < today) {
+    // antes de la función
+    startCountdownTo(today);
     return;
   }
 
-  // now >= today's start: elapsed seconds since 17:00
-  const elapsed = Math.floor((now - todayTarget) / 1000);
+  // entre 17:00 y adelante -> calculamos elapsed (segundos desde 17:00)
+  const elapsed = Math.floor((now - today) / 1000);
 
+  // mostrarmos modal de inmediato y forzamos iframe con start=elapsed (fallback inmediato)
+  showModal();
+  setIframeWithStart(elapsed, true);
+
+  // tratamos de crear player y sincronizar (seek/play) cuando esté listo
   const player = await loadYouTubeAPIAndCreatePlayer();
 
   if (!player) {
-    // fallback: reload iframe with start param
-    const params = new URLSearchParams({
-      rel:'0', modestbranding:'1', autoplay:'1', mute:'1', start: String(elapsed), controls:'1'
-    });
-    iframe.src = `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?${params.toString()}`;
-    modal.style.opacity = 1;
-    container.style.opacity = 0;
-    document.body.style.overflow = "hidden";
+    // si no se pudo crear player, ya cargamos el iframe con start=elapsed, lo dejamos.
     return;
   }
 
-  function getDurationWithRetry(attempts = 12, delayMs = 300) {
-    return new Promise((resolve) => {
-      let tries = 0;
-      const t = setInterval(() => {
-        tries++;
-        let dur = 0;
-        try { dur = player.getDuration(); } catch (e) { dur = 0; }
-        if (dur && dur > 0) {
-          clearInterval(t);
-          resolve(dur);
-        } else if (tries >= attempts) {
-          clearInterval(t);
-          resolve(dur || 0);
-        }
-      }, delayMs);
-    });
+  // si player existe, pedimos duration con retry
+  const reportedDuration = await getDurationWithRetry(player, 12, 300);
+  const duration = (reportedDuration > 0) ? reportedDuration : KNOWN_VIDEO_DURATION;
+
+  if (elapsed < duration) {
+    // video debe estar reproduciéndose y terminar a las 18:00
+    try {
+      // seekTo y reproducir (muted)
+      if (typeof player.seekTo === 'function') {
+        player.seekTo(elapsed, true);
+      } else {
+        // fallback: recargar iframe con start param
+        setIframeWithStart(elapsed, true);
+      }
+      try { player.mute(); } catch(e){}
+      try { player.playVideo && player.playVideo(); } catch(e){}
+    } catch (err) {
+      console.warn('Error en seek/play, recargando iframe con start:', err);
+      setIframeWithStart(elapsed, true);
+    }
+    return;
   }
 
-  const duration = await getDurationWithRetry();
-  if (duration && elapsed < Math.floor(duration)) {
-    try {
-      modal.style.opacity = 1;
-      container.style.opacity = 0;
-      document.body.style.overflow = "hidden";
-      player.seekTo(elapsed, true);
-      try { player.mute(); } catch (e) {}
-      try { player.playVideo && player.playVideo(); } catch (e) {}
-    } catch (err) {
-      console.warn('Error seeking/playing:', err);
-      const params = new URLSearchParams({
-        rel:'0', modestbranding:'1', autoplay:'1', mute:'1', start: String(elapsed), controls:'1', enablejsapi:'1'
-      });
-      iframe.src = `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?${params.toString()}`;
-    }
-  } else {
-    player.pauseVideo && player.pauseVideo();
-    const next = getNextTargetDate(now);
-    modal.style.opacity = 0;
-    container.style.opacity = 1;
-    document.body.style.overflow = "auto";
-    startCountdownTo(next);
-  }
+  // si elapsed >= duración => ya finalizó para hoy
+  hideModal();
+  startCountdownTo(getNextTargetDate(now));
 }
 
-// Create overlay to unmute on first click
+// Overlay para desmutear al click
 function createUnmuteOverlay() {
   if (!iframe) return;
   const parent = iframe.parentElement;
   if (!parent) return;
+  if (document.getElementById('yt-unmute-overlay')) return;
   const prevPos = window.getComputedStyle(parent).position;
   if (!prevPos || prevPos === 'static') parent.style.position = 'relative';
 
@@ -212,23 +235,24 @@ function createUnmuteOverlay() {
         return;
       }
     } catch (err) {
-      console.warn('Error unmute via API:', err);
+      console.warn('Error unmute via API', err);
     }
+    // fallback: recargar iframe sin mute
+    const now = new Date();
+    const elapsedNow = Math.floor((now - getTodayTargetDate(now)) / 1000);
     const params = new URLSearchParams({
-      rel:'0', modestbranding:'1', autoplay:'1', mute:'0', controls:'1', enablejsapi:'1'
+      rel:'0', modestbranding:'1', autoplay:'1', mute:'0', start: String(Math.max(0, elapsedNow)), controls:'1', enablejsapi:'1'
     });
     iframe.src = `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?${params.toString()}`;
     overlay.remove();
   });
 }
 
-// Start on DOMContentLoaded
+// Iniciar al cargar
 document.addEventListener('DOMContentLoaded', function() {
-  initOrStartPlayback();
   createUnmuteOverlay();
+  initOrStartPlayback();
 });
 
-// Expose for debugging
-window._surtiempo = {
-  initOrStartPlayback, getNextTargetDate, getTodayTargetDate
-};
+// export para debugging
+window._surtiempo = { initOrStartPlayback, getTodayTargetDate, getNextTargetDate };
