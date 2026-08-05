@@ -1,119 +1,234 @@
-//Hora destino (FORMATO 24 HORAS) **MODIFICADO PARA TESTEO
-let destHour = 17                   //
-let destMinute = 0           //
-let destSecond = 0       //
-//////////////////////////////////////////////////////////
-let destTotalSecs = destHour*3600+destMinute*60+destSecond*1;
+// CONFIG: hora objetivo en 24h
+const DEST_HOUR = 17;
+const DEST_MINUTE = 0;
+const DEST_SECOND = 0;
 
-let modal = document.querySelector(".modal");
-// let videoContainer = document.querySelector(".videoContainer");
-let video = document.querySelector(".video");
-let container = document.querySelector(".container");
-let clockBar = document.getElementById("clock");
-let time = document.getElementById("time");
+// Elementos UI
+const modal = document.querySelector(".modal");
+const container = document.querySelector(".container");
+const clockBar = document.getElementById("clock");
+const timeEl = document.getElementById("time");
+const iframe = document.getElementById('yt-iframe');
+const video = document.querySelector('.video'); // fallback if needed
 
-function countdownTimer() {
+// YouTube player reference
+let ytPlayer = null;
+let playerReady = false;
+let videoId = (iframe && iframe.dataset && iframe.dataset.videoId) ? iframe.dataset.videoId : (window.YOUTUBE_VIDEO_ID || 'wq30q8NKU_A');
 
-  h = new Date().getHours();
-  m = new Date().getMinutes();
-  s = new Date().getSeconds();
-  let secsActuales = h*3600+m*60+s;
-  let secsDistancia = destTotalSecs-secsActuales;
-
-  // QUE PASA SI ALGUIEN ENTRA MIENTRAS EL VIDEO DEBERIA ESTAR REPRODUCIENDOSE?
-  // Este if es valido si el video deberia estar reproduciendose y todavia faltan mas de 8 segundos para que el video finalice
-  if ( !video.playing && secsDistancia<=0 && secsDistancia>( (video.duration-8) * (-1) ) ){
-    start(Math.abs(secsDistancia));
-  }
-
-  if ( !video.playing && secsDistancia == 4 ) {
-    start(0);
-  }
-
-  //Desvanecer el video 6 segundos antes de que termine
-  if (video.playing && video.currentTime>=video.duration-6) {
-    modal.style.opacity = 0;
-  }
-  // video.addEventListener("timeupdate",(e)=>{console.log(e.target.currentTime);}); //ESTA PODRIA SER OTRA FORMA
-
-  // // En 00:00:04 empiezo a mostrar video y quito el timer, tambien añado un evento para que cuando termine mueste el boton y el reloj
-  // if (secsDistancia == 4) {
-  //   clockBar.style.opacity = 0;
-  //   video.addEventListener("ended", () => {
-  //     setTimeout(()=>{clockBar.style.opacity = 1;},5000);
-  //   });
-  // }
-  //
-  // // En 00:00:00 muestro video y lo reproduzco
-  // if (secsDistancia == 0) {
-  //   video.style.opacity = 1;
-  //   video.play().then( () => {} ).catch(error => {console.log(error);});
-  // }
-  //
-  // // 6 segundos antes de que termine el video lo voy apagando
-  // if (video.playing && video.currentTime> video.duration - 6) {
-  //   video.style.opacity=0;
-  // }
-  //
-  //
-  // //QUE PASA SI ALGUIEN ENTRA MIENTRAS EL VIDEO DEBERIA ESTAR REPRODUCIENDOSE?
-  // //Este if es valido si el video deberia estar reproduciendose y todavia faltan mas de 8 segundos para que el video finalice
-  // if ( !video.playing && secsDistancia<0 && secsDistancia>( (video.duration-8) * (-1) ) ) {
-  //   clockBar.style.opacity = 0;
-  //   video.currentTime = Math.abs(secsDistancia);
-  //   console.log(`El video debería estar en curso, duración del video: ${video. duration}, empezando a reproducir desde el segundo ${Math.abs(secsDistancia)}`);
-  //   video.style.opacity = 1;
-  //   video.play().then( () => {} ).catch(error => {console.log(error);});
-  //   video.addEventListener("ended", () => {
-  //     setTimeout(()=>{clockBar.style.opacity = 1;},5000);
-  //   });
-  //
-  // }
-
-
-
-
-
-
-
-  //FORMATEO SEGUNDOS A HH:MM:SS y muestro en la pantalla
-  let difHMS = new Date(secsDistancia * 1000).toISOString().substr(11, 8);
-  time.innerHTML = difHMS;
-
+// utility: compute today's target and next target
+function getTodayTargetDate(now = new Date()) {
+  const target = new Date(now);
+  target.setHours(DEST_HOUR, DEST_MINUTE, DEST_SECOND, 0);
+  return target;
 }
- interval = setInterval(countdownTimer, 1000);
+function getNextTargetDate(now = new Date()) {
+  const t = getTodayTargetDate(now);
+  if (now <= t) return t;
+  const next = new Date(t.getTime() + 24*60*60*1000);
+  return next;
+}
 
+// UI: show countdown to a future date (updates every second)
+let countdownInterval = null;
+function startCountdownTo(targetDate) {
+  if (countdownInterval) clearInterval(countdownInterval);
+  function update() {
+    const now = new Date();
+    let diff = Math.floor((targetDate - now) / 1000);
+    if (diff <= 0) {
+      clearInterval(countdownInterval);
+      timeEl.textContent = "00:00:00";
+      initOrStartPlayback();
+      return;
+    }
+    const h = String(Math.floor(diff / 3600)).padStart(2,'0');
+    const m = String(Math.floor((diff % 3600) / 60)).padStart(2,'0');
+    const s = String(diff % 60).padStart(2,'0');
+    timeEl.textContent = `${h}:${m}:${s}`;
+  }
+  update();
+  countdownInterval = setInterval(update, 1000);
+}
 
-
-//START. Esta funcion desvanece todo el texto que haya en la pantalla
-function start(startTime) {
-
-  container.style.opacity = 0;
-  video.currentTime = startTime;
-  setTimeout(()=>{document.body.style.overflow= "hidden";},2000)
-  setTimeout(()=>{
-    modal.style.opacity = 1;
-    // video.addEventListener("canplaythrough",()=>{video.play().then( () => {} ).catch(error => {console.log(error);});})
-    video.play()
-
-    video.addEventListener("ended",(e)=>{
-      container.style.opacity = 1;
-      document.body.style.overflow= "auto";
+// Initialize YouTube iframe player (load API if needed)
+function loadYouTubeAPIAndCreatePlayer() {
+  return new Promise((resolve) => {
+    if (!iframe) return resolve(null);
+    const baseParams = new URLSearchParams({
+      rel: '0',
+      modestbranding: '1',
+      autoplay: '1',
+      mute: '1',
+      enablejsapi: '1',
+      controls: '1'
     });
-  },3000);
+    iframe.src = `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?${baseParams.toString()}`;
 
+    window.onYouTubeIframeAPIReady = function() {
+      try {
+        ytPlayer = new YT.Player('yt-iframe', {
+          events: {
+            onReady: function(e) {
+              playerReady = true;
+              try { e.target.mute(); } catch (err) {}
+              try { e.target.playVideo && e.target.playVideo(); } catch (err) {}
+              resolve(ytPlayer);
+            },
+            onStateChange: function(e) {
+              if (e && e.data === 0) { // ended
+                const next = getNextTargetDate(new Date());
+                modal.style.opacity = 0;
+                container.style.opacity = 1;
+                document.body.style.overflow = "auto";
+                startCountdownTo(next);
+              }
+            }
+          }
+        });
+      } catch (err) {
+        console.warn('Error creating YT player', err);
+        resolve(null);
+      }
+    };
+
+    if (!window.YT || !window.YT.Player) {
+      const tag = document.createElement('script');
+      tag.src = 'https://www.youtube.com/iframe_api';
+      document.head.appendChild(tag);
+    } else {
+      window.onYouTubeIframeAPIReady();
+    }
+  });
 }
 
+// Main logic: decide to play now or show countdown
+async function initOrStartPlayback() {
+  const now = new Date();
+  const todayTarget = getTodayTargetDate(now);
+  const nextTarget = getNextTargetDate(now);
 
+  if (!videoId) {
+    console.warn('No YOUTUBE video id configured.');
+    startCountdownTo(nextTarget);
+    return;
+  }
 
+  if (now < todayTarget) {
+    startCountdownTo(todayTarget);
+    return;
+  }
 
+  // now >= today's start: elapsed seconds since 17:00
+  const elapsed = Math.floor((now - todayTarget) / 1000);
 
+  const player = await loadYouTubeAPIAndCreatePlayer();
 
+  if (!player) {
+    // fallback: reload iframe with start param
+    const params = new URLSearchParams({
+      rel:'0', modestbranding:'1', autoplay:'1', mute:'1', start: String(elapsed), controls:'1'
+    });
+    iframe.src = `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?${params.toString()}`;
+    modal.style.opacity = 1;
+    container.style.opacity = 0;
+    document.body.style.overflow = "hidden";
+    return;
+  }
 
+  function getDurationWithRetry(attempts = 12, delayMs = 300) {
+    return new Promise((resolve) => {
+      let tries = 0;
+      const t = setInterval(() => {
+        tries++;
+        let dur = 0;
+        try { dur = player.getDuration(); } catch (e) { dur = 0; }
+        if (dur && dur > 0) {
+          clearInterval(t);
+          resolve(dur);
+        } else if (tries >= attempts) {
+          clearInterval(t);
+          resolve(dur || 0);
+        }
+      }, delayMs);
+    });
+  }
 
+  const duration = await getDurationWithRetry();
+  if (duration && elapsed < Math.floor(duration)) {
+    try {
+      modal.style.opacity = 1;
+      container.style.opacity = 0;
+      document.body.style.overflow = "hidden";
+      player.seekTo(elapsed, true);
+      try { player.mute(); } catch (e) {}
+      try { player.playVideo && player.playVideo(); } catch (e) {}
+    } catch (err) {
+      console.warn('Error seeking/playing:', err);
+      const params = new URLSearchParams({
+        rel:'0', modestbranding:'1', autoplay:'1', mute:'1', start: String(elapsed), controls:'1', enablejsapi:'1'
+      });
+      iframe.src = `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?${params.toString()}`;
+    }
+  } else {
+    player.pauseVideo && player.pauseVideo();
+    const next = getNextTargetDate(now);
+    modal.style.opacity = 0;
+    container.style.opacity = 1;
+    document.body.style.overflow = "auto";
+    startCountdownTo(next);
+  }
+}
 
- Object.defineProperty(HTMLMediaElement.prototype, 'playing', {  //un bloque de codigo que luego me va a servir para saber si un video se esta reproduciendo o no
-     get: function(){
-         return !!(this.currentTime > 0 && !this.paused && !this.ended && this.readyState > 2);
-     }
- })
+// Create overlay to unmute on first click
+function createUnmuteOverlay() {
+  if (!iframe) return;
+  const parent = iframe.parentElement;
+  if (!parent) return;
+  const prevPos = window.getComputedStyle(parent).position;
+  if (!prevPos || prevPos === 'static') parent.style.position = 'relative';
+
+  const overlay = document.createElement('div');
+  overlay.id = 'yt-unmute-overlay';
+  Object.assign(overlay.style, {
+    position: 'absolute',
+    top: '0',
+    left: '0',
+    width: '100%',
+    height: '100%',
+    cursor: 'pointer',
+    background: 'transparent',
+    zIndex: '999'
+  });
+  overlay.title = 'Hacer click para activar sonido';
+  parent.appendChild(overlay);
+
+  overlay.addEventListener('click', function() {
+    try {
+      if (ytPlayer && typeof ytPlayer.unMute === 'function') {
+        ytPlayer.unMute();
+        ytPlayer.setVolume && ytPlayer.setVolume(100);
+        overlay.remove();
+        return;
+      }
+    } catch (err) {
+      console.warn('Error unmute via API:', err);
+    }
+    const params = new URLSearchParams({
+      rel:'0', modestbranding:'1', autoplay:'1', mute:'0', controls:'1', enablejsapi:'1'
+    });
+    iframe.src = `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?${params.toString()}`;
+    overlay.remove();
+  });
+}
+
+// Start on DOMContentLoaded
+document.addEventListener('DOMContentLoaded', function() {
+  initOrStartPlayback();
+  createUnmuteOverlay();
+});
+
+// Expose for debugging
+window._surtiempo = {
+  initOrStartPlayback, getNextTargetDate, getTodayTargetDate
+};
