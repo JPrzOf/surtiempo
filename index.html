@@ -9,8 +9,10 @@
     <!-- VIDEO MODAL -->
     <div class="modal">
       <div class="videoContainer">
-        <!-- The page previously used a hosted <video>; we now use an iframe for YouTube controlled by js/main.js -->
-        <iframe id="yt-iframe" class="responsive-iframe" data-video-id="wq30q8NKU_A" src="" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+        <!-- Keep a wrapper with the same class used for responsive iframes so CSS applies correctly -->
+        <div class="videoExtra">
+          <iframe id="yt-iframe" class="responsive-iframe" data-video-id="wq30q8NKU_A" src="" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+        </div>
       </div>
     </div>
 
